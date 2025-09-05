@@ -1,0 +1,49 @@
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+sqlalchemy
+alembic
+
+# Data processing
+pandas
+numpy
+
+# Document processing
+PyPDF2
+python-docx
+openpyxl
+
+# Vector database and embeddings
+chromadb
+sentence-transformers
+
+# LLM services
+openai
+anthropic
+
+# Logging and monitoring
+structlog
+rich
+
+# Validation and serialization
+pydantic
+pydantic-settings
+
+# Utilities
+python-jose[cryptography]
+passlib[bcrypt]
+python-dateutil
+pytz
+
+# Testing (optional)
+pytest
+pytest-asyncio
+httpx
+
+# Development tools (optional)
+black
+flake8
+mypy
