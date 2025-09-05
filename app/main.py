@@ -13,6 +13,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import uuid
 from contextlib import asynccontextmanager
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 from app.config.settings import get_settings
 from app.utils.logger import setup_logging, get_logger, compliance_logger
@@ -26,6 +28,47 @@ settings = get_settings()
 # Setup logging
 setup_logging()
 logger = get_logger(__name__)
+
+
+# Simple rate limiting middleware
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple rate limiting based on IP address"""
+    
+    def __init__(self, app, requests_per_minute: int = 60):
+        super().__init__(app)
+        self.requests_per_minute = requests_per_minute
+        self.requests = defaultdict(list)
+    
+    async def dispatch(self, request: Request, call_next):
+        if settings.is_development:
+            # Skip rate limiting in development
+            return await call_next(request)
+            
+        # Get client IP
+        client_ip = request.client.host if request.client else "unknown"
+        now = datetime.utcnow()
+        
+        # Clean old requests (older than 1 minute)
+        minute_ago = now - timedelta(minutes=1)
+        self.requests[client_ip] = [
+            req_time for req_time in self.requests[client_ip]
+            if req_time > minute_ago
+        ]
+        
+        # Check rate limit
+        if len(self.requests[client_ip]) >= self.requests_per_minute:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "Too Many Requests", 
+                    "message": f"Rate limit exceeded. Maximum {self.requests_per_minute} requests per minute."
+                }
+            )
+        
+        # Add current request
+        self.requests[client_ip].append(now)
+        
+        return await call_next(request)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -173,17 +216,38 @@ if settings.is_production:
         allowed_hosts=["*"]  # Configure with actual allowed hosts in production
     )
 
-# CORS middleware
+# CORS middleware - Configure properly for your frontend domain
+allowed_origins = []
+if settings.is_development:
+    # Allow localhost and common development ports
+    allowed_origins = [
+        "http://localhost:3000",  # React default
+        "http://localhost:8080",  # Vue default  
+        "http://localhost:5173",  # Vite default
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080", 
+        "http://127.0.0.1:5173"
+    ]
+else:
+    # PRODUCTION: Add your actual frontend domain(s) here
+    allowed_origins = [
+        "https://your-frontend-domain.com",
+        # Add more allowed origins as needed
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.is_development else ["https://yourdomain.com"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],  # Specific methods instead of "*"
     allow_headers=["*"],
 )
 
 # Compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Rate limiting middleware (60 requests per minute per IP in production)
+app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
 
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
