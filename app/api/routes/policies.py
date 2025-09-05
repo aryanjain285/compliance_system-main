@@ -33,6 +33,295 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.post("/upload-pdf-base64")
+async def upload_pdf_and_extract_rules(
+    pdf_data: dict,
+    db: Session = Depends(get_db),
+    llm_service: LLMService = Depends(get_optional_llm_service)
+):
+    """
+    Upload PDF (base64), extract text, chunk it, and use LLM to create compliance rules
+    """
+    try:
+        import base64
+        import uuid
+        import json
+        from datetime import datetime
+        from PyPDF2 import PdfReader
+        from io import BytesIO
+        
+        # Validate input
+        if "file_content" not in pdf_data or "filename" not in pdf_data:
+            return {
+                "success": False,
+                "error": "Missing 'file_content' (base64) or 'filename' in request"
+            }
+        
+        filename = pdf_data["filename"]
+        base64_content = pdf_data["file_content"]
+        
+        # Decode base64 PDF
+        try:
+            pdf_bytes = base64.b64decode(base64_content)
+        except Exception as e:
+            return {"success": False, "error": f"Invalid base64 content: {str(e)}"}
+        
+        # Extract text from PDF
+        try:
+            pdf_reader = PdfReader(BytesIO(pdf_bytes))
+            full_text = ""
+            page_texts = []
+            
+            for page_num, page in enumerate(pdf_reader.pages):
+                page_text = page.extract_text()
+                page_texts.append({
+                    "page_number": page_num + 1,
+                    "text": page_text
+                })
+                full_text += f"\\n\\nPAGE {page_num + 1}:\\n{page_text}"
+                
+        except Exception as e:
+            return {"success": False, "error": f"PDF text extraction failed: {str(e)}"}
+        
+        # Create a content hash for the PDF
+        import hashlib
+        content_hash = hashlib.md5(pdf_bytes).hexdigest()
+        
+        # Check if document already exists
+        existing_doc = db.query(PolicyDocument).filter_by(content_hash=content_hash).first()
+        if existing_doc:
+            policy_id = existing_doc.policy_id
+            policy_doc = existing_doc
+            logger.info(f"Document already exists with policy_id: {policy_id}")
+        else:
+            # Create new policy document record
+            policy_id = f"POL_{uuid.uuid4().hex[:8].upper()}"
+            
+            policy_doc = PolicyDocument(
+                policy_id=policy_id,
+                filename=filename,
+                content_hash=content_hash,
+                status="UPLOADED",  # Using valid enum value
+                upload_date=datetime.now(),
+                uploaded_by="pdf_api",
+                version=1,
+                document_metadata={"total_pages": len(pdf_reader.pages)},
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            
+            db.add(policy_doc)
+            db.flush()
+        
+        # Chunk the text (split into manageable pieces for LLM)
+        chunks = _chunk_text_for_llm(full_text, max_chunk_size=2000)
+        
+        # Extract compliance rules using LLM
+        extracted_rules = []
+        if llm_service:
+            logger.info(f"Processing {len(chunks)} chunks for rule extraction")
+            for chunk_idx, chunk in enumerate(chunks):
+                try:
+                    logger.info(f"Processing chunk {chunk_idx}, length: {len(chunk)}")
+                    rules_json = await _extract_rules_from_chunk(chunk, llm_service, policy_id, chunk_idx)
+                    logger.info(f"LLM returned: {rules_json}")
+                    if rules_json and "rules" in rules_json:
+                        extracted_rules.extend(rules_json["rules"])
+                        logger.info(f"Added {len(rules_json['rules'])} rules from chunk {chunk_idx}")
+                except Exception as e:
+                    logger.error(f"LLM extraction failed for chunk {chunk_idx}: {e}")
+                    continue
+        else:
+            logger.warning("No LLM service available for rule extraction")
+        
+        # Store extracted rules in database
+        stored_rules = []
+        for rule_data in extracted_rules:
+            try:
+                rule_id = f"RULE_{uuid.uuid4().hex[:8].upper()}"
+                
+                from app.models.database import ComplianceRule, ControlType, RuleSeverity
+                
+                # Map control type
+                control_type_map = {
+                    "concentration": ControlType.QUANT_LIMIT,
+                    "limit": ControlType.QUANT_LIMIT,
+                    "restriction": ControlType.LIST_CONSTRAINT,
+                    "requirement": ControlType.PROCESS_CONTROL,
+                    "reporting": ControlType.REPORTING_DISCLOSURE
+                }
+                
+                control_type = ControlType.QUANT_LIMIT  # Default
+                rule_desc = rule_data.get("description", "").lower()
+                for key, value in control_type_map.items():
+                    if key in rule_desc:
+                        control_type = value
+                        break
+                
+                # Map severity
+                severity_map = {
+                    "critical": RuleSeverity.CRITICAL,
+                    "high": RuleSeverity.HIGH,
+                    "medium": RuleSeverity.MEDIUM,
+                    "low": RuleSeverity.LOW
+                }
+                
+                severity = severity_map.get(
+                    rule_data.get("severity", "medium").lower(), 
+                    RuleSeverity.MEDIUM
+                )
+                
+                new_rule = ComplianceRule(
+                    rule_id=rule_id,
+                    name=rule_data.get("name", f"Extracted Rule {rule_id}"),
+                    description=rule_data.get("description", ""),
+                    control_type=control_type,
+                    severity=severity,
+                    expression=rule_data.get("expression", {}),
+                    materiality_bps=rule_data.get("materiality_bps", 100),
+                    source_policy_id=policy_id,
+                    source_section=rule_data.get("section", ""),
+                    is_active=True,
+                    version=1,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now()
+                )
+                
+                db.add(new_rule)
+                stored_rules.append({
+                    "rule_id": rule_id,
+                    "name": new_rule.name,
+                    "description": new_rule.description,
+                    "control_type": str(new_rule.control_type),
+                    "severity": str(new_rule.severity)
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to store rule: {e}")
+                continue
+        
+        # Update policy document metadata
+        policy_doc.document_metadata = {
+            "total_pages": len(pdf_reader.pages),
+            "chunks_processed": len(chunks),
+            "rules_generated": len(stored_rules)
+        }
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "policy_id": policy_id,
+            "filename": filename,
+            "total_pages": len(pdf_reader.pages),
+            "chunks_processed": len(chunks),
+            "rules_extracted": len(extracted_rules),
+            "rules_stored": len(stored_rules),
+            "stored_rules": stored_rules[:5],  # First 5 rules
+            "message": f"PDF processed successfully. Extracted {len(stored_rules)} compliance rules."
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "error": f"PDF processing failed: {str(e)}"
+        }
+
+
+def _chunk_text_for_llm(text: str, max_chunk_size: int = 2000) -> list:
+    """Split text into chunks suitable for LLM processing"""
+    # Split by paragraphs first
+    paragraphs = text.split('\\n\\n')
+    chunks = []
+    current_chunk = ""
+    
+    for paragraph in paragraphs:
+        if len(current_chunk) + len(paragraph) > max_chunk_size:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = paragraph
+            else:
+                # Handle very long paragraphs by splitting by sentences
+                sentences = paragraph.split('. ')
+                for sentence in sentences:
+                    if len(current_chunk) + len(sentence) > max_chunk_size:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = sentence
+                    else:
+                        current_chunk += ". " + sentence if current_chunk else sentence
+        else:
+            current_chunk += "\\n\\n" + paragraph if current_chunk else paragraph
+    
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+        
+    return chunks
+
+
+async def _extract_rules_from_chunk(chunk: str, llm_service, policy_id: str, chunk_idx: int) -> dict:
+    """Use LLM to extract compliance rules from text chunk"""
+    
+    extraction_prompt = f'''
+You are a compliance expert. Extract compliance rules from the following policy text.
+
+Return ONLY valid JSON in this exact format:
+{{
+    "rules": [
+        {{
+            "name": "Rule Name",
+            "description": "Clear description of the rule",
+            "severity": "high|medium|low|critical",
+            "expression": {{
+                "metric": "concentration|exposure|rating",
+                "operator": "<=|>=|<|>|==",
+                "threshold": 0.05,
+                "scope": "portfolio|position|issuer"
+            }},
+            "materiality_bps": 100,
+            "section": "source section reference"
+        }}
+    ]
+}}
+
+Only extract clear, actionable compliance rules. Ignore general statements.
+Focus on numerical limits, restrictions, requirements, and prohibitions.
+
+Policy text to analyze:
+{chunk}
+'''
+    
+    try:
+        response = await llm_service.generate(
+            prompt=extraction_prompt,
+            max_tokens=1000,
+            temperature=0.1
+        )
+        
+        # Parse JSON response from LLMResponse object
+        content = response.content if hasattr(response, 'content') else str(response)
+        
+        # Clean JSON content
+        content = content.strip()
+        if content.startswith('```json'):
+            content = content[7:]
+        if content.endswith('```'):
+            content = content[:-3]
+        content = content.strip()
+        
+        import json
+        rules_json = json.loads(content)
+        return rules_json
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse LLM JSON response: {e}")
+        return {"rules": []}
+    except Exception as e:
+        logger.error(f"LLM extraction error: {e}")
+        return {"rules": []}
+
+
 @router.post("/upload", response_model=PolicyUploadResponse)
 async def upload_policy_document(
     file: UploadFile = File(...),
