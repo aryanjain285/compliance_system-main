@@ -32,28 +32,47 @@ _vector_service: Optional[VectorStoreService] = None
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[str]:
     """
-    Get current user from JWT token (placeholder implementation)
-    In production, implement proper JWT validation
+    Get current user from JWT token with proper validation
     """
     if not credentials:
-        return "anonymous"
+        if settings.is_development:
+            return "anonymous"  # Allow anonymous in development
+        raise AuthenticationException("Missing authentication token")
     
     try:
-        # In production, validate JWT token here
         token = credentials.credentials
         
-        # Placeholder validation
-        if token == "admin-token":
-            return "admin"
-        elif token == "user-token":
-            return "user"
-        else:
-            # For development, accept any token
-            return f"user_{token[:8]}"
+        # Validate JWT token
+        if jwt is None:
+            raise AuthenticationException("JWT library not available")
+            
+        payload = jwt.decode(
+            token, 
+            settings.secret_key, 
+            algorithms=[settings.algorithm]
+        )
+        
+        username: str = payload.get("sub")
+        if username is None:
+            raise AuthenticationException("Invalid token: missing subject")
+            
+        # Check token expiration
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp) < datetime.utcnow():
+            raise AuthenticationException("Token expired")
+            
+        return username
     
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
+        if settings.is_development:
+            return "anonymous"  # Fallback for development
+        raise AuthenticationException("Invalid authentication token")
     except Exception as e:
-        logger.warning(f"Token validation failed: {e}")
-        return "anonymous"
+        logger.error(f"Token validation failed: {e}")
+        if settings.is_development:
+            return "anonymous"  # Fallback for development
+        raise AuthenticationException("Authentication failed")
 
 
 def get_compliance_engine(db: Session = Depends(get_db)) -> ComplianceEngine:
@@ -231,7 +250,9 @@ def check_system_health() -> dict:
     # Check database
     try:
         db = db_manager.get_session()
-        db.execute("SELECT 1")
+        from sqlalchemy import text
+        result = db.execute(text("SELECT 1"))
+        result.fetchone()
         db.close()
         health_status["database"] = "healthy"
     except Exception as e:
