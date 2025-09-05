@@ -47,7 +47,9 @@ class ComplianceEngine:
     def _load_portfolio_cache(self) -> Dict[str, Any]:
         """Load portfolio data into memory for fast access"""
         try:
-            positions = self.db.query(Portfolio).all()
+            # Query PositionHistory for current positions
+            from app.models.database import PositionHistory
+            positions = self.db.query(PositionHistory).all()
             portfolio_cache = {}
             total_market_value = 0
             
@@ -55,19 +57,20 @@ class ComplianceEngine:
                 if pos.market_value and pos.market_value > 0:
                     total_market_value += pos.market_value
                     portfolio_cache[pos.symbol] = {
-                        "position_id": pos.position_id,
+                        "position_id": getattr(pos, 'position_id', pos.history_id),
+                        "portfolio_id": pos.portfolio_id,
                         "symbol": pos.symbol,
-                        "name": pos.name,
+                        "name": f"{pos.symbol} Position",
                         "weight": float(pos.weight or 0),
                         "market_value": float(pos.market_value or 0),
-                        "quantity": float(pos.quantity or 0),
-                        "price": float(pos.price or 0),
-                        "sector": pos.sector or "Unknown",
-                        "industry": pos.industry or "Unknown",
-                        "country": pos.country or "Unknown",
-                        "currency": pos.currency or "USD",
-                        "rating": pos.rating or "NR",
-                        "rating_agency": pos.rating_agency,
+                        "quantity": float(pos.quantity or 0) if pos.quantity else 0,
+                        "price": float(pos.price or 0) if pos.price else 0,
+                        "sector": getattr(pos, 'sector', None) or "Unknown",
+                        "industry": getattr(pos, 'industry', None) or "Unknown",
+                        "country": getattr(pos, 'country', None) or "Unknown",
+                        "currency": "USD",
+                        "rating": getattr(pos, 'rating', None) or "NR",
+                        "rating_agency": getattr(pos, 'rating_agency', None),
                         "instrument_type": pos.instrument_type or "Unknown",
                         "exchange": pos.exchange,
                         "maturity_date": pos.maturity_date.isoformat() if pos.maturity_date else None,
@@ -1292,7 +1295,7 @@ class ComplianceEngine:
         try:
             query = self.db.query(ComplianceBreach).join(
                 ComplianceRule, ComplianceBreach.rule_id == ComplianceRule.rule_id
-            ).filter(ComplianceBreach.status == BreachStatus.OPEN)
+            ).filter(ComplianceBreach.status == "OPEN")
             
             if severity_filter:
                 query = query.filter(ComplianceRule.severity == severity_filter)
@@ -1306,13 +1309,13 @@ class ComplianceEngine:
                     "rule_id": breach.rule_id,
                     "rule_name": breach.rule.name,
                     "rule_description": breach.rule.description,
-                    "control_type": breach.rule.control_type.value,
-                    "severity": breach.rule.severity.value,
+                    "control_type": str(breach.rule.control_type),
+                    "severity": str(breach.rule.severity),
                     "observed_value": breach.observed_value,
                     "threshold": breach.threshold_value,
                     "breach_magnitude": breach.breach_magnitude,
                     "breach_timestamp": breach.breach_timestamp.isoformat(),
-                    "status": breach.status.value,
+                    "status": str(breach.status),
                     "impact_assessment": breach.impact_assessment,
                     "portfolio_snapshot_size": len(breach.portfolio_snapshot) if breach.portfolio_snapshot else 0,
                     "external_reference": breach.external_reference
@@ -1381,7 +1384,7 @@ class ComplianceEngine:
             # Breach statistics
             total_breaches = self.db.query(ComplianceBreach).count()
             open_breaches = self.db.query(ComplianceBreach).filter(
-                ComplianceBreach.status == BreachStatus.OPEN
+                ComplianceBreach.status == "OPEN"
             ).count()
             
             period_breaches = self.db.query(ComplianceBreach).filter(

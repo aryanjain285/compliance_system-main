@@ -154,11 +154,13 @@ def create_mock_portfolios():
     portfolios = [
         {
             "portfolio_id": "PORT_001",
+            "symbol": "BGF001",
             "name": "Balanced Growth Fund",
             "owner": "John Smith"
         },
         {
-            "portfolio_id": "PORT_002", 
+            "portfolio_id": "PORT_002",
+            "symbol": "CIF002", 
             "name": "Conservative Income Fund",
             "owner": "Sarah Johnson"
         }
@@ -189,18 +191,18 @@ def create_mock_positions():
     # Positions that will trigger some rule violations
     positions = [
         # PORT_001 positions - will trigger issuer concentration breach
-        {"portfolio_id": "PORT_001", "symbol": "AAPL", "quantity": 1000, "price": 150.0},  # High concentration
-        {"portfolio_id": "PORT_001", "symbol": "MSFT", "quantity": 500, "price": 300.0},
-        {"portfolio_id": "PORT_001", "symbol": "GOOGL", "quantity": 200, "price": 120.0},
-        {"portfolio_id": "PORT_001", "symbol": "TSLA", "quantity": 300, "price": 200.0},
-        {"portfolio_id": "PORT_001", "symbol": "NVDA", "quantity": 100, "price": 400.0},
+        {"portfolio_id": "PORT_001", "symbol": "AAPL", "quantity": 1000, "price": 150.0, "market_value": 150000.0, "weight": 0.078},  # High concentration
+        {"portfolio_id": "PORT_001", "symbol": "MSFT", "quantity": 500, "price": 300.0, "market_value": 150000.0, "weight": 0.078},
+        {"portfolio_id": "PORT_001", "symbol": "GOOGL", "quantity": 200, "price": 120.0, "market_value": 24000.0, "weight": 0.012},
+        {"portfolio_id": "PORT_001", "symbol": "TSLA", "quantity": 300, "price": 200.0, "market_value": 60000.0, "weight": 0.031},
+        {"portfolio_id": "PORT_001", "symbol": "NVDA", "quantity": 100, "price": 400.0, "market_value": 40000.0, "weight": 0.021},
         
         # PORT_002 positions - more conservative
-        {"portfolio_id": "PORT_002", "symbol": "BRK.A", "quantity": 10, "price": 500000.0},
-        {"portfolio_id": "PORT_002", "symbol": "JNJ", "quantity": 200, "price": 160.0},
-        {"portfolio_id": "PORT_002", "symbol": "PG", "quantity": 150, "price": 140.0},
-        {"portfolio_id": "PORT_002", "symbol": "KO", "quantity": 300, "price": 55.0},
-        {"portfolio_id": "PORT_002", "symbol": "CASH", "quantity": 50000, "price": 1.0},  # 2% cash
+        {"portfolio_id": "PORT_002", "symbol": "BRK.A", "quantity": 10, "price": 500000.0, "market_value": 5000000.0, "weight": 0.83},
+        {"portfolio_id": "PORT_002", "symbol": "JNJ", "quantity": 200, "price": 160.0, "market_value": 32000.0, "weight": 0.053},
+        {"portfolio_id": "PORT_002", "symbol": "PG", "quantity": 150, "price": 140.0, "market_value": 21000.0, "weight": 0.035},
+        {"portfolio_id": "PORT_002", "symbol": "KO", "quantity": 300, "price": 55.0, "market_value": 16500.0, "weight": 0.027},
+        {"portfolio_id": "PORT_002", "symbol": "CASH", "quantity": 50000, "price": 1.0, "market_value": 50000.0, "weight": 0.083},  # 8.3% cash
     ]
     
     session = db_manager.get_session()

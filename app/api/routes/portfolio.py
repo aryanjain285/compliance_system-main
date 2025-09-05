@@ -23,7 +23,21 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("", response_model=Dict[str, PositionResponse])
+@router.get("/debug")
+async def debug_portfolio(db: Session = Depends(get_db)):
+    """Debug endpoint - return raw portfolio data"""
+    positions = db.query(Portfolio).filter(Portfolio.weight > 0).all()
+    result = {}
+    for p in positions:
+        result[p.symbol] = {
+            "symbol": p.symbol,
+            "weight": float(p.weight),
+            "market_value": float(p.market_value),
+            "portfolio_id": p.portfolio_id
+        }
+    return result
+
+@router.get("")
 async def get_portfolio(
     include_inactive: bool = Query(False, description="Include inactive positions"),
     sector_filter: Optional[str] = Query(None, description="Filter by sector"),
@@ -36,39 +50,47 @@ async def get_portfolio(
     Get current portfolio positions with optional filtering
     """
     try:
-        query = db.query(Portfolio)
+        # Query PositionHistory for current positions (latest entries)
+        query = db.query(PositionHistory)
         
-        # Apply filters - but check if fields exist first
-        if not include_inactive and hasattr(Portfolio, 'weight'):
-            query = query.filter(Portfolio.weight > 0)
+        # Apply filters
+        if not include_inactive:
+            query = query.filter(PositionHistory.weight > 0)
         
-        if sector_filter and hasattr(Portfolio, 'sector'):
-            query = query.filter(Portfolio.sector == sector_filter)
-        
-        if country_filter and hasattr(Portfolio, 'country'):
-            query = query.filter(Portfolio.country == country_filter)
-        
-        if min_weight is not None and hasattr(Portfolio, 'weight'):
-            query = query.filter(Portfolio.weight >= min_weight)
+        if min_weight is not None:
+            query = query.filter(PositionHistory.weight >= min_weight)
         
         positions = query.all()
+        
+        # Filter by sector/country after querying (since PositionHistory might not have these fields)
+        if sector_filter or country_filter:
+            filtered_positions = []
+            for pos in positions:
+                include_pos = True
+                if sector_filter and hasattr(pos, 'sector') and pos.sector != sector_filter:
+                    include_pos = False
+                if country_filter and hasattr(pos, 'country') and pos.country != country_filter:
+                    include_pos = False
+                if include_pos:
+                    filtered_positions.append(pos)
+            positions = filtered_positions
         
         # Convert to response format with safe field access
         portfolio = {}
         for position in positions:
             try:
                 portfolio[position.symbol] = PositionResponse(
-                    position_id=getattr(position, 'position_id', position.portfolio_id),
+                    position_id=getattr(position, 'position_id', position.history_id),
                     symbol=position.symbol,
-                    name=getattr(position, 'name', None),
-                    weight=getattr(position, 'weight', 0.0),
-                    market_value=getattr(position, 'market_value', 0.0),
-                    quantity=getattr(position, 'quantity', None),
-                    price=getattr(position, 'price', None),
+                    name=f"{position.symbol} Position",  # PositionHistory doesn't have name field
+                    weight=float(getattr(position, 'weight', 0.0)),
+                    market_value=float(getattr(position, 'market_value', 0.0)),
+                    quantity=float(getattr(position, 'quantity', 0.0)) if getattr(position, 'quantity', None) else None,
+                    price=float(getattr(position, 'price', 0.0)) if getattr(position, 'price', None) else None,
                     sector=getattr(position, 'sector', None),
                     industry=getattr(position, 'industry', None),
                     country=getattr(position, 'country', None),
-                    currency=getattr(position, 'currency', "USD"),
+                    currency="USD",  # PositionHistory doesn't have currency field
                     rating=getattr(position, 'rating', None),
                     rating_agency=getattr(position, 'rating_agency', None),
                     instrument_type=getattr(position, 'instrument_type', None),
@@ -150,9 +172,12 @@ async def create_or_update_position(
             
         else:
             # Create new position
+            position_dict = position_data.dict(exclude_unset=True)
+            # Remove symbol from position_data to avoid duplicate
+            position_dict.pop('symbol', None)
             new_position = Portfolio(
                 symbol=symbol,
-                **position_data.dict(exclude_unset=True)
+                **position_dict
             )
             db.add(new_position)
             db.flush()  # Get the ID
@@ -571,6 +596,18 @@ async def get_portfolio_summary(
             detail=f"Failed to generate portfolio summary: {str(e)}"
         )
 
+
+@router.post("/bulk-update/debug")
+async def debug_bulk_update(request_data: dict, db: Session = Depends(get_db)):
+    """Debug bulk update - test with simple dict"""
+    try:
+        return {
+            "success": True,
+            "message": "Bulk update debug endpoint working",
+            "received_data": request_data
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @router.post("/bulk-update", response_model=BaseResponse)
 async def bulk_update_positions(

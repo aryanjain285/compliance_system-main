@@ -208,7 +208,7 @@ datasets/
 sample_data/
 
 # Model files
-models/
+
 *.model
 *.pkl
 *.joblib

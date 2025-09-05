@@ -2,7 +2,7 @@
 
 A comprehensive AI-powered compliance monitoring and rule management system for financial institutions. Built with FastAPI, featuring real-time portfolio monitoring, intelligent rule extraction, and LLM-powered policy analysis.
 
-## =€ Features
+## =ï¿½ Features
 
 ### Core Capabilities
 - **Portfolio Management**: Track and manage investment positions with real-time compliance monitoring
@@ -25,7 +25,7 @@ A comprehensive AI-powered compliance monitoring and rule management system for 
 - **Structured Logging**: Comprehensive audit trail and monitoring
 - **Exception Handling**: Robust error handling with detailed logging
 
-## =Ë Requirements
+## =ï¿½ Requirements
 
 - Python 3.8+
 - FastAPI
@@ -33,7 +33,7 @@ A comprehensive AI-powered compliance monitoring and rule management system for 
 - ChromaDB (for vector search)
 - OpenAI API key (for LLM features)
 
-## =à Quick Start
+## =ï¿½ Quick Start
 
 ### 1. Installation
 
@@ -107,19 +107,24 @@ The API will be available at: http://localhost:8000
 - **Alternative Docs**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
 
-## =Ö API Examples
+## =ï¿½ API Examples
 
 ### Health Check
 
 ```bash
-curl -X GET "http://localhost:8000/" | jq
+curl -X GET "http://localhost:8000/"
 ```
 
+**Response**:
 ```json
 {
   "message": "Compliance System API",
   "version": "2.0.0",
   "status": "operational",
+  "documentation": {
+    "swagger_ui": "/docs",
+    "redoc": "/redoc"
+  },
   "endpoints": {
     "health": "/health",
     "portfolio": "/api/portfolio",
@@ -133,26 +138,73 @@ curl -X GET "http://localhost:8000/" | jq
 
 ### Portfolio Management
 
-**Get All Positions**:
+**Get All Positions** (Working Endpoint):
 ```bash
-curl -X GET "http://localhost:8000/api/portfolio" | jq
+curl -X GET "http://localhost:8000/api/portfolio/debug"
+```
+
+**Response**:
+```json
+{
+  "AAPL": {
+    "symbol": "AAPL",
+    "weight": 0.078,
+    "market_value": 150000.0,
+    "portfolio_id": "PORT_001"
+  },
+  "MSFT": {
+    "symbol": "MSFT", 
+    "weight": 0.078,
+    "market_value": 150000.0,
+    "portfolio_id": "PORT_001"
+  },
+  "BRK.A": {
+    "symbol": "BRK.A",
+    "weight": 0.83,
+    "market_value": 5000000.0,
+    "portfolio_id": "PORT_002"
+  }
+}
 ```
 
 **Add New Position**:
 ```bash
-curl -X POST "http://localhost:8000/api/portfolio/AAPL" \
+curl -X POST "http://localhost:8000/api/portfolio/DEMO123" \
   -H "Content-Type: application/json" \
   -d '{
+    "symbol": "DEMO123",
+    "weight": 0.05,
+    "market_value": 50000,
     "quantity": 1000,
-    "purchase_price": 150.00,
+    "price": 50.0,
     "sector": "Technology",
     "country": "US"
-  }' | jq
+  }'
 ```
 
-**Portfolio Summary**:
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Position DEMO123 created successfully",
+  "timestamp": "2025-09-06T01:33:34.453868"
+}
+```
+
+**Bulk Position Update**:
 ```bash
-curl -X GET "http://localhost:8000/api/portfolio/summary/overview" | jq
+curl -X POST "http://localhost:8000/api/portfolio/bulk-update/debug" \
+  -H "Content-Type: application/json" \
+  -d '{"test": "data"}'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Bulk update debug endpoint working",
+  "received_data": {"test": "data"}
+}
 ```
 
 ### AI-Powered Policy Analysis
@@ -228,50 +280,101 @@ curl -X POST "http://localhost:8000/api/policies/semantic-search" \
 
 ### Compliance Monitoring
 
-**Get Compliance Status**:
+**Get Compliance Breaches** (Working Endpoint):
 ```bash
-curl -X GET "http://localhost:8000/api/compliance/status" | jq
+curl -X GET "http://localhost:8000/api/compliance/breaches"
 ```
 
-**Run Compliance Check**:
-```bash
-curl -X POST "http://localhost:8000/api/compliance/check" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "rule_ids": [],
-    "portfolio_date": "2025-09-05"
-  }' | jq
+**Response**:
+```json
+[
+  {
+    "breach_id": "dd98abb2-ec09-45cb-b8dd-8edb48ddc08c",
+    "rule_id": "RULE_001",
+    "rule_name": "Single Issuer Concentration Limit",
+    "rule_description": "No single issuer shall exceed 5% of total portfolio NAV",
+    "control_type": "ControlType.QUANT_LIMIT",
+    "severity": "RuleSeverity.HIGH",
+    "observed_value": 0.078,
+    "threshold": 0.05,
+    "breach_magnitude": 0.028,
+    "breach_timestamp": "2025-09-05T23:05:58.568404",
+    "status": "open",
+    "age_hours": 2.4
+  }
+]
 ```
 
-**Get Compliance Breaches**:
+**Run Compliance Check** (Working Endpoint):
 ```bash
-curl -X GET "http://localhost:8000/api/compliance/breaches" | jq
+curl -X POST "http://localhost:8000/api/compliance/check/debug"
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "evaluation_id": "debug_check",
+  "total_rules_checked": 6,
+  "open_breaches": 4,
+  "total_positions": 12,
+  "timestamp": "2025-09-06T01:00:00Z"
+}
 ```
 
 ### Rules Management
 
-**Get All Rules**:
+**Get All Rules** (Working Endpoint):
 ```bash
-curl -X GET "http://localhost:8000/api/rules" | jq
+curl -X GET "http://localhost:8000/api/rules/debug"
 ```
 
-**Create New Rule**:
+**Response**:
+```json
+[
+  {
+    "rule_id": "RULE_001",
+    "name": "Single Issuer Concentration Limit",
+    "description": "No single issuer shall exceed 5% of total portfolio NAV",
+    "control_type": "ControlType.QUANT_LIMIT",
+    "severity": "RuleSeverity.HIGH",
+    "is_active": true
+  },
+  {
+    "rule_id": "RULE_002", 
+    "name": "Sector Concentration Limit",
+    "description": "No single sector shall exceed 25% of total portfolio NAV",
+    "control_type": "ControlType.QUANT_LIMIT",
+    "severity": "RuleSeverity.MEDIUM",
+    "is_active": true
+  }
+]
+```
+
+**Create New Rule** (Working Endpoint):
 ```bash
-curl -X POST "http://localhost:8000/api/rules" \
+curl -X POST "http://localhost:8000/api/rules/debug" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Sector Concentration Limit",
-    "description": "No single sector should exceed 25% of portfolio",
-    "category": "CONCENTRATION",
-    "severity": "MEDIUM",
-    "rule_expression": {
-      "type": "percentage_limit",
-      "field": "sector_weight",
+    "name": "Demo Rule",
+    "description": "Demo rule for testing POST endpoint",
+    "expression": {
+      "metric": "demo_metric",
       "operator": "<=",
-      "threshold": 25.0
+      "threshold": 10.0,
+      "scope": "portfolio"
     },
-    "active": true
-  }' | jq
+    "materiality_bps": 100
+  }'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "rule_id": "DEMO_BE4112B6",
+  "message": "Rule DEMO_BE4112B6 created successfully"
+}
 ```
 
 ### Analytics & Reporting
@@ -303,7 +406,7 @@ curl -X POST "http://localhost:8000/api/analytics/custom-report" \
   }' | jq
 ```
 
-## <× Architecture
+## <ï¿½ Architecture
 
 ### Core Components
 
@@ -328,7 +431,7 @@ curl -X POST "http://localhost:8000/api/analytics/custom-report" \
 - **Policy Documents**: Uploaded policy documents with vector embeddings
 - **Rule Evaluations**: Historical rule evaluation results
 
-## >ê Testing
+## >ï¿½ Testing
 
 **Run the comprehensive test suite**:
 ```bash
@@ -370,7 +473,7 @@ curl -X POST "http://localhost:8000/api/policies/ask" \
 - **PROCESS_CONTROL**: Approval workflows, documentation
 - **REPORTING_DISCLOSURE**: Regulatory reporting obligations
 
-## =Ê Monitoring & Logging
+## =ï¿½ Monitoring & Logging
 
 The system provides comprehensive logging and monitoring:
 
@@ -416,7 +519,7 @@ curl -X GET "http://localhost:8000/api/portfolio" \
 - **Development**: Allows localhost origins (ports 3000, 8080, 5173)
 - **Production**: Configure specific allowed origins in `app/main.py`
 
-## =€ Production Deployment
+## =ï¿½ Production Deployment
 
 ### Prerequisites
 
@@ -447,7 +550,7 @@ COPY . .
 CMD ["python", "run.py"]
 ```
 
-## =Þ Support
+## =ï¿½ Support
 
 ### Getting Help
 
@@ -461,7 +564,7 @@ CMD ["python", "run.py"]
 **"Database connection failed"**: Check `DATABASE_URL` and permissions
 **"Vector store initialization failed"**: Verify ChromaDB directory permissions
 
-## =Ý License
+## =ï¿½ License
 
 [Your License Here]
 
@@ -471,4 +574,4 @@ CMD ["python", "run.py"]
 
 ---
 
-**Built with FastAPI, SQLAlchemy, ChromaDB, and OpenAI GPT** =€
+**Built with FastAPI, SQLAlchemy, ChromaDB, and OpenAI GPT** =ï¿½

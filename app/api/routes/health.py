@@ -19,86 +19,36 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-# @router.get("", response_model=HealthCheckResponse)
-# async def health_check():
-#     """
-#     Comprehensive health check endpoint
-#     Returns detailed status of all system components
-#     """
-#     try:
-#         # Get system health
-#         health_status = check_system_health()
+@router.get("")
+async def health_check():
+    """
+    Comprehensive health check endpoint
+    Returns detailed status of all system components
+    """
+    try:
+        # Get system health
+        health_status = check_system_health()
         
-#         # Get service details
-#         services = {}
+        # Get basic stats
+        stats = await _get_system_stats()
         
-#         # Database service
-#         services["database"] = ServiceStatus(
-#             service="database",
-#             status=health_status["database"],
-#             details={
-#                 "connection_pool_size": "dynamic",
-#                 "type": "sqlite" if "sqlite" in str(db_manager.database_url) else "postgresql"
-#             }
-#         )
+        return {
+            "status": health_status["overall_status"],
+            "timestamp": datetime.now(),
+            "database": health_status["database"],
+            "llm_service": health_status.get("llm_service", "unknown"),
+            "vector_store": health_status.get("vector_store", "unknown"),
+            "stats": stats
+        }
         
-#         # LLM service
-#         llm_service = get_optional_llm_service()
-#         if llm_service:
-#             llm_status = llm_service.get_service_status()
-#             services["llm_service"] = ServiceStatus(
-#                 service="llm_service",
-#                 status=llm_status.get("status", "unknown"),
-#                 details=llm_status
-#             )
-#         else:
-#             services["llm_service"] = ServiceStatus(
-#                 service="llm_service",
-#                 status="unavailable",
-#                 details={"reason": "No API keys configured"}
-#             )
-        
-#         # Vector store service
-#         vector_service = get_optional_vector_service()
-#         if vector_service and vector_service.is_available():
-#             vector_status = vector_service.get_service_status()
-#             services["vector_store"] = ServiceStatus(
-#                 service="vector_store",
-#                 status=vector_status.get("status", "unknown"),
-#                 details=vector_status
-#             )
-#         else:
-#             services["vector_store"] = ServiceStatus(
-#                 service="vector_store",
-#                 status="unavailable",
-#                 details={"reason": "Service not initialized or disabled"}
-#             )
-        
-#         # Get basic stats
-#         stats = await _get_system_stats()
-        
-#         return HealthCheckResponse(
-#             status=health_status["overall_status"],
-#             timestamp=datetime.now(),
-#             database=health_status["database"],
-#             services=services,
-#             stats=stats
-#         )
-        
-#     except Exception as e:
-#         logger.error(f"Health check failed: {e}")
-#         return HealthCheckResponse(
-#             status="error",
-#             timestamp=datetime.now(),
-#             database="error",
-#             services={
-#                 "error": ServiceStatus(
-#                     service="system",
-#                     status="error",
-#                     details={"error": str(e)}
-#                 )
-#             }
-#         )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "timestamp": datetime.now(),
+            "database": "error",
+            "error": str(e)
+        }
 
 
 # @router.get("/detailed")
@@ -259,30 +209,32 @@ router = APIRouter()
 #         }
 
 
-# async def _get_system_stats() -> Dict[str, Any]:
-#     """Get basic system statistics"""
-#     try:
-#         db = db_manager.get_session()
+async def _get_system_stats() -> Dict[str, Any]:
+    """Get basic system statistics"""
+    try:
+        db = db_manager.get_session()
         
-#         # Database stats
-#         from app.models.database import Portfolio, ComplianceRule, ComplianceBreach
+        # Database stats
+        from app.models.database import Portfolio, ComplianceRule, ComplianceBreach, PositionHistory
         
-#         portfolio_count = db.query(Portfolio).count()
-#         rules_count = db.query(ComplianceRule).filter(ComplianceRule.is_active == True).count()
-#         open_breaches = db.query(ComplianceBreach).filter(ComplianceBreach.status == "open").count()
+        portfolio_count = db.query(Portfolio).count()
+        position_count = db.query(PositionHistory).count()
+        rules_count = db.query(ComplianceRule).filter(ComplianceRule.is_active == True).count()
+        open_breaches = db.query(ComplianceBreach).filter(ComplianceBreach.status == "OPEN").count()
         
-#         db.close()
+        db.close()
         
-#         return {
-#             "portfolio_positions": portfolio_count,
-#             "active_compliance_rules": rules_count,
-#             "open_breaches": open_breaches,
-#             "system_load": "normal"  # Would implement actual system monitoring
-#         }
+        return {
+            "portfolio_count": portfolio_count,
+            "position_count": position_count,
+            "active_compliance_rules": rules_count,
+            "open_breaches": open_breaches,
+            "system_load": "normal"
+        }
         
-#     except Exception as e:
-#         logger.error(f"Error getting system stats: {e}")
-#         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"Error getting system stats: {e}")
+        return {"error": str(e)}
 
 
 # async def _get_performance_metrics() -> Dict[str, Any]:
